@@ -1,0 +1,26 @@
+# Copy this file to terraform.tfvars and fill in your values.
+# terraform.tfvars is gitignored to avoid leaking environment-specific config.
+
+region = "us-east-1"
+
+# Amazon Linux 2023 ARM64 - us-east-1
+# Update this to the latest AMI for your region:
+# aws ec2 describe-images \
+#   --owners amazon \
+#   --filters "Name=name,Values=al2023-ami-2023*" \
+#             "Name=architecture,Values=arm64" \
+#   --query "sort_by(Images,&CreationDate)[-1].ImageId" \
+#   --output text
+ami_id = "ami-0123456789abcdef0"
+
+instance_type        = "t4g.micro"
+subnet_id            = "subnet-0123456789abcdef0"
+security_group_id    = "sg-0123456789abcdef0"
+key_name             = "my-key-pair"
+iam_instance_profile = "EC2-VPN-Gateway-Role"
+instance_name        = "VPN-Gateway-Instance"
+
+tags = {
+  Project     = "vpn-gateway"
+  Environment = "production"
+}

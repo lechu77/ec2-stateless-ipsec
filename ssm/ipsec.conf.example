@@ -1,0 +1,28 @@
+conn vpn-connection
+    type=tunnel
+    ikev2=insist
+    authby=secret
+
+    left=%defaultroute
+    leftid=${PRIMARY_PUBLIC_IP}
+    leftsubnet=${LOCAL_ENCRYPTION_DOMAIN}/32
+    leftsourceip=${LOCAL_ENCRYPTION_DOMAIN}
+
+    right=${REMOTE_GATEWAY}
+    rightid=${REMOTE_GATEWAY}
+    rightsubnets=${REMOTE_SUBNETS}
+
+    ike=aes256-sha2_256;modp2048
+    esp=aes256-sha2_256
+    pfs=no
+
+    ikelifetime=28800s
+    salifetime=3600s
+    rekeymargin=300s
+    rekeyfuzz=0%
+    keyingtries=%forever
+
+    dpddelay=30s
+    dpdaction=restart
+
+    auto=start

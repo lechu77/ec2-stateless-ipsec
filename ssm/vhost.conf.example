@@ -1,0 +1,19 @@
+<VirtualHost *:80>
+    ServerName ${HTTPD_SERVER_NAME}
+
+    ServerAlias ${PRIMARY_PUBLIC_IP} ${SECONDARY_PUBLIC_IP} ${PRIMARY_PRIVATE_IP} ${SECONDARY_PRIVATE_IP}
+
+    DocumentRoot /var/www/webservice/ws
+    ServerAdmin admin@${HTTPD_SERVER_NAME}
+
+    ErrorLog /var/log/httpd/${HTTPD_SERVER_NAME}_error_log
+
+    SetEnvIf Request_URI "^/healthCheck\.php$" nlb_healthcheck
+
+    CustomLog /var/log/httpd/${HTTPD_SERVER_NAME}_access_log combined env=!nlb_healthcheck
+
+    <Directory "/var/www/webservice/ws">
+        AllowOverride All
+        Require all granted
+    </Directory>
+</VirtualHost>

@@ -1,0 +1,16 @@
+{
+  "hostname": "VPN-Gateway-Instance",
+  "httpd_server_name": "ws.example.com",
+  "primary_eip_allocation_id": "eipalloc-0123456789abcdef0",
+  "secondary_eip_allocation_id": "eipalloc-0fedcba9876543210",
+  "repositories": [
+    {
+      "url": "https://git-codecommit.us-east-1.amazonaws.com/v1/repos/webservice",
+      "directory": "/var/www/webservice"
+    },
+    {
+      "url": "https://git-codecommit.us-east-1.amazonaws.com/v1/repos/plataforma",
+      "directory": "/var/www/plataforma"
+    }
+  ]
+}
