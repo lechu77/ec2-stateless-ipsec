@@ -13,12 +13,26 @@ region = "us-east-1"
 #   --output text
 ami_id = "ami-0123456789abcdef0"
 
-instance_type        = "t4g.micro"
-subnet_id            = "subnet-0123456789abcdef0"
-security_group_id    = "sg-0123456789abcdef0"
-key_name             = "my-key-pair"
+instance_type     = "t4g.micro"
+vpc_id            = "vpc-0123456789abcdef0"
+subnet_id         = "subnet-0123456789abcdef0"
+subnet_ids        = ["subnet-0123456789abcdef0", "subnet-0fedcba9876543210"]
+security_group_id = "sg-0123456789abcdef0"
+key_name          = "my-key-pair"
+
 iam_instance_profile = "EC2-VPN-Gateway-Role"
 instance_name        = "VPN-Gateway-Instance"
+
+# Auto Scaling Group capacity
+asg_min_size         = 1
+asg_max_size         = 1
+asg_desired_capacity = 1
+
+# Load Balancer Options
+# Set create_load_balancer = true to create a new Network Load Balancer (NLB) and Target Group
+# Set create_load_balancer = false and specify existing_target_group_arn to use an existing ELB/NLB
+create_load_balancer      = true
+existing_target_group_arn = ""
 
 tags = {
   Project     = "vpn-gateway"

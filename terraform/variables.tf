@@ -15,9 +15,22 @@ variable "instance_type" {
   default     = "t4g.micro"
 }
 
-variable "subnet_id" {
-  description = "Subnet ID where the instance will be deployed (must be public)"
+variable "vpc_id" {
+  description = "VPC ID where the target group / load balancer will be deployed"
   type        = string
+  default     = ""
+}
+
+variable "subnet_id" {
+  description = "Primary subnet ID where resources will be deployed"
+  type        = string
+  default     = ""
+}
+
+variable "subnet_ids" {
+  description = "List of public subnet IDs across multiple AZs for ASG and NLB"
+  type        = list(string)
+  default     = []
 }
 
 variable "security_group_id" {
@@ -31,14 +44,53 @@ variable "key_name" {
 }
 
 variable "iam_instance_profile" {
-  description = "IAM instance profile name (must have SSM/EC2 permissions)"
+  description = "IAM instance profile / role name for the EC2 instance"
   type        = string
+  default     = "EC2-VPN-Gateway-Role"
 }
 
 variable "instance_name" {
-  description = "Name tag for the EC2 instance"
+  description = "Name tag for the EC2 instance and Launch Template"
   type        = string
   default     = "VPN-Gateway-Instance"
+}
+
+# ---------------------------------------------------------------------------
+# Auto Scaling Group Configuration
+# ---------------------------------------------------------------------------
+
+variable "asg_min_size" {
+  description = "Minimum capacity for the Auto Scaling Group"
+  type        = number
+  default     = 1
+}
+
+variable "asg_max_size" {
+  description = "Maximum capacity for the Auto Scaling Group"
+  type        = number
+  default     = 1
+}
+
+variable "asg_desired_capacity" {
+  description = "Desired capacity for the Auto Scaling Group"
+  type        = number
+  default     = 1
+}
+
+# ---------------------------------------------------------------------------
+# Load Balancer Integration
+# ---------------------------------------------------------------------------
+
+variable "create_load_balancer" {
+  description = "Set to true to create a new Network Load Balancer (NLB) and Target Group"
+  type        = bool
+  default     = true
+}
+
+variable "existing_target_group_arn" {
+  description = "ARN of an existing Target Group if create_load_balancer is false"
+  type        = string
+  default     = ""
 }
 
 variable "tags" {

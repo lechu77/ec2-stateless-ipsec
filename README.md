@@ -1,20 +1,44 @@
 # ec2-stateless-ipsec
 
-Automated bootstrap for an Amazon Linux 2023 EC2 instance acting as an
-IPsec VPN gateway with an Apache web service backend.
+Automated bootstrap for an Amazon Linux 2023 EC2 instance managed by an **Auto Scaling Group (ASG)** with a **Launch Template**, acting as an IPsec VPN gateway with an Apache web service backend behind a **Network Load Balancer (NLB)**.
 
 The instance is fully **stateless**: terminating and relaunching it
-(via Terraform or the console) is the standard replacement procedure.
+(via Terraform or ASG Auto-Healing) is the standard replacement procedure.
 No state is stored on disk — all configuration is pulled from
 AWS SSM Parameter Store at boot.
+
+> [!IMPORTANT]
+> **Remote State Management (`tfstate`)**:
+> For team collaboration and production deployments, storing `terraform.tfstate` locally or in Git is strongly discouraged. It is recommended to configure an AWS S3 Bucket with versioning enabled and a DynamoDB Table for state locking:
+> ```hcl
+> terraform {
+>   backend "s3" {
+>     bucket         = "my-company-terraform-states"
+>     key            = "vpn-gateway/terraform.tfstate"
+>     region         = "us-east-1"
+>     dynamodb_table = "terraform-state-locks"
+>     encrypt        = true
+>   }
+> }
+> ```
 
 ---
 
 ## Architecture
 
 ```
-                        ┌─────────────────────────────────┐
-                        │         EC2 Instance             │
+                               ┌───────────────────────────────────┐
+                               │     Network Load Balancer (NLB)   │
+                               │           Port 80 / TCP           │
+                               └─────────────────┬─────────────────┘
+                                                 │
+                               ┌─────────────────▼─────────────────┐
+                               │    Auto Scaling Group (ASG)       │
+                               │       (Desired Capacity: 1)       │
+                               └─────────────────┬─────────────────┘
+                                                 │
+                        ┌────────────────────────▼────────┐
+                        │      Launch Template Instance    │
                         │  t4g.micro / Amazon Linux 2023  │
                         │                                  │
 Internet ───────────────│  EIP 203.0.113.10  (primary)     │
@@ -23,8 +47,8 @@ Internet ───────────────│  EIP 203.0.113.10  (pr
 Remote IPsec peers ─────│  Libreswan (IKEv2/PSK)          │
 192.0.2.0/24            │  src: 198.51.100.20              │
                         │                                  │
-NLB ────────────────────│  Apache + PHP-FPM               │
-                        │  CodeCommit repos cloned at boot │
+Target Group ───────────│  Apache + PHP-FPM               │
+/healthCheck.php        │  CodeCommit repos cloned at boot │
                         └─────────────────────────────────┘
                                       │
                                SSM Parameter Store
@@ -33,19 +57,12 @@ NLB ────────────────────│  Apache + PH
                                /vpn-gateway/httpd/*
 ```
 
-### Networking
+### High Availability & Auto-Healing
 
-The instance uses two Elastic IPs on a single ENI:
-
-| EIP | Role |
-|-----|------|
-| `203.0.113.10` | Primary — SSH, NLB health checks, IKE identity |
-| `198.51.100.20` | IPsec encryption domain — tunnel source/dest |
-
-A secondary private IP is assigned to the ENI at boot and the secondary
-EIP is associated to it. Host routes toward each remote IPsec peer are
-set with `src 198.51.100.20` so that tunnel traffic always originates
-from the encryption domain address.
+- **Launch Template**: Manages instance specifications, AMI ID, IAM Instance Profile, and base64-encoded `user-data.sh`.
+- **Auto Scaling Group**: Maintains instance availability (`min_size=1`, `max_size=1`, `desired_capacity=1`). If an instance or Availability Zone fails, the ASG automatically terminates the unhealthy instance and launches a replacement.
+- **Stateless Re-attachment**: When a new instance launches, `user-data.sh` executes automatically, re-claims the designated Elastic IPs from SSM, re-establishes IPsec host routes, clones the CodeCommit repositories, and registers with the NLB Target Group.
+- **Load Balancer Choice**: Set `create_load_balancer = true` to create a dedicated Network Load Balancer (NLB) and Target Group, or set `create_load_balancer = false` and supply `existing_target_group_arn` to attach the ASG to an existing load balancer.
 
 ---
 
@@ -65,12 +82,14 @@ ec2-stateless-ipsec/
 │   └── vhost.conf.example            # Template Apache VirtualHost
 ├── scripts/
 │   ├── setup.sh                      # Copies .example templates to gitignored config files
-│   └── ssm-put-parameters.sh         # Uploads local ssm/* files to AWS SSM Parameter Store
+│   └── ssm-put-parameters.sh         # Helper to upload ssm/* files via AWS CLI
 ├── terraform/
-│   ├── main.tf                       # EC2 Instance resource
+│   ├── main.tf                       # Launch Template & Auto Scaling Group
+│   ├── lb.tf                         # Network Load Balancer, Target Group & Listener
+│   ├── ssm.tf                        # SSM Parameter Store resources
 │   ├── iam.tf                        # IAM Role, Policy, and Instance Profile
-│   ├── variables.tf                  # Input variables
-│   ├── outputs.tf                    # Infrastructure outputs
+│   ├── variables.tf                  # Input variables (VPC, subnets, ASG, ELB options)
+│   ├── outputs.tf                    # Infrastructure outputs (NLB DNS, ASG ID, etc.)
 │   └── terraform.tfvars.example      # Sample Terraform variables
 └── README.md
 ```
@@ -83,9 +102,7 @@ All parameters are stored as **SecureString** (KMS-encrypted).
 The bootstrap script reads them at launch — nothing sensitive is baked
 into the AMI or the user-data.
 
-### Parameters managed in this repo
-
-Uploaded via `scripts/ssm-put-parameters.sh`:
+### Parameters managed in Terraform (`terraform/ssm.tf`)
 
 | Parameter | Source file | Description |
 |-----------|-------------|-------------|
@@ -98,35 +115,13 @@ Uploaded via `scripts/ssm-put-parameters.sh`:
 | `/vpn-gateway/ipsec/remote-hosts` | `ssm/remote-hosts` | Comma-separated list of remote IPsec hosts |
 | `/vpn-gateway/httpd/vhost.conf` | `ssm/vhost.conf` | Apache VirtualHost template |
 
-### `/vpn-gateway/bootstrap/config` schema
-
-```json
-{
-  "hostname": "VPN-Gateway-Instance",
-  "httpd_server_name": "ws.example.com",
-  "primary_eip_allocation_id": "eipalloc-xxxxxxxxxxxxxxxxx",
-  "secondary_eip_allocation_id": "eipalloc-xxxxxxxxxxxxxxxxx",
-  "repositories": [
-    {
-      "url": "https://git-codecommit.us-east-1.amazonaws.com/v1/repos/webservice",
-      "directory": "/var/www/webservice"
-    },
-    {
-      "url": "https://git-codecommit.us-east-1.amazonaws.com/v1/repos/plataforma",
-      "directory": "/var/www/plataforma"
-    }
-  ]
-}
-```
-
 ---
 
 ## Prerequisites
 
 - AWS CLI v2 configured with appropriate credentials
 - Terraform >= 1.5.0
-- Existing VPC, subnet, security group, and two Elastic IP Allocation IDs
-- SSM parameters populated (see below)
+- Existing VPC, public subnets, security group, and two Elastic IP Allocation IDs
 
 ---
 
@@ -140,67 +135,36 @@ Run the setup script to generate local configuration files from anonymized `.exa
 ./scripts/setup.sh
 ```
 
-Then edit the generated files in `ssm/` with your actual environment details, IPs, and secrets. Real configuration files are gitignored to prevent leaking sensitive data.
+Edit the generated files in `ssm/` with your actual environment details, IPs, and secrets. Real configuration files are gitignored to prevent leaking sensitive data.
 
 ### 2. Configure Terraform
 
-Edit `terraform/terraform.tfvars` (created from `terraform.tfvars.example` by `setup.sh`) with your AWS subnet ID, AMI ID, security group, and key pair.
+Edit `terraform/terraform.tfvars` (created from `terraform.tfvars.example` by `setup.sh`):
+
+* Set `vpc_id` and `subnet_ids` (or `subnet_id`).
+* Choose Load Balancer configuration:
+  * `create_load_balancer = true` (creates a new NLB & Target Group).
+  * `create_load_balancer = false` and set `existing_target_group_arn = "arn:aws:elasticloadbalancing:..."` (attaches to an existing Target Group).
 
 ### 3. Deploy everything with Terraform
 
-Terraform automatically provisions the SSM parameters, IAM Role/Policies, and EC2 instance in a single step:
+Terraform automatically provisions the SSM parameters, IAM Role/Policies, Launch Template, Target Group, NLB, and Auto Scaling Group in a single step:
 
 ```bash
 cd terraform
 terraform init
+terraform plan
 terraform apply
 ```
 
-*(Note: `./scripts/ssm-put-parameters.sh` is also available if you prefer uploading parameters via the AWS CLI outside of Terraform).*
+### 4. Instance Replacement / Refresh
 
-### 5. Replace the instance
-
-Because the instance is stateless, the standard way to apply changes
-(new user-data, new AMI, config update) is to destroy and recreate:
+Because the instance is stateless, trigger an ASG Instance Refresh or force replacement via Terraform:
 
 ```bash
 cd terraform
-terraform apply   # user_data_replace_on_change = true handles this automatically
+terraform apply -replace=aws_launch_template.vpn
 ```
-
-Or force a replacement:
-
-```bash
-terraform apply -replace=aws_instance.vpn
-```
-
----
-
-## Bootstrap flow
-
-When the instance starts, `user-data.sh` executes the following steps:
-
-1. Set up logging to `/var/log/user-data.log` and `/dev/console`
-2. Retrieve IMDS token and collect instance metadata (instance ID, ENI, IPs)
-3. Pull `get_secure_parameter` inline functions (required before SSM access)
-4. **Source** `/vpn-gateway/bootstrap/helpers` from SSM → loads shell helper functions
-5. Install packages: `git`, `httpd`, `php-fpm`, `libreswan`, `jq`, `python3`, `nmap-ncat`
-6. Validate IAM role availability
-7. Retrieve and validate `/vpn-gateway/bootstrap/config` (JSON)
-8. **Source** `/vpn-gateway/bootstrap/vars` from SSM → extracts and validates variables
-9. Resolve EIP public IPs, assign secondary private IP to ENI
-10. Associate both EIPs to the ENI
-11. **Wait** for `systemd-networkd` to finish reconfiguring after EIP association
-12. Configure host routes: each remote IPsec peer routed via `src 198.51.100.20`
-13. Validate networking
-14. Set system hostname
-15. Retrieve Libreswan config template from SSM, render with runtime values, start `ipsec`
-16. Configure Apache user, clone CodeCommit repositories
-17. Retrieve Apache VirtualHost template from SSM, render with runtime values
-18. Patch global `httpd.conf` to exclude NLB health checks from access logs
-19. Start `php-fpm` and `httpd`
-20. Validate NLB health-check endpoint (`/healthCheck.php`)
-21. Log final state summary
 
 ---
 
@@ -212,26 +176,12 @@ When the instance starts, `user-data.sh` executes the following steps:
 cat /var/log/user-data.log
 ```
 
-### user-data did not execute at all
-
-- **Do not paste** user-data in the AWS console — the browser may silently
-  truncate or corrupt content near the 16 KB limit.
-- Always use **File upload** in the console, or pass `--user-data file://user-data.sh`
-  with the AWS CLI / Terraform.
-
 ### IPsec tunnels not passing traffic
 
 ```bash
 sudo ipsec status
 sudo ipsec trafficstatus
 ip -4 route show | grep 192.0.2
-```
-
-If routes toward remote peers are missing, `systemd-networkd` reconfigured
-the interface after the bootstrap set them. This is prevented by waiting for networkd to stabilize after EIP association, but if you observe it on a running instance:
-
-```bash
-sudo ip route replace 192.0.2.X/32 via <gateway> dev ens5 src 198.51.100.20
 ```
 
 ### Apache not running after bootstrap
