@@ -142,24 +142,21 @@ Run the setup script to generate local configuration files from anonymized `.exa
 
 Then edit the generated files in `ssm/` with your actual environment details, IPs, and secrets. Real configuration files are gitignored to prevent leaking sensitive data.
 
-### 2. Upload SSM parameters
-
-```bash
-./scripts/ssm-put-parameters.sh --region us-east-1 [--profile myprofile]
-```
-
-### 3. Configure Terraform
+### 2. Configure Terraform
 
 Edit `terraform/terraform.tfvars` (created from `terraform.tfvars.example` by `setup.sh`) with your AWS subnet ID, AMI ID, security group, and key pair.
 
-### 4. Deploy
+### 3. Deploy everything with Terraform
+
+Terraform automatically provisions the SSM parameters, IAM Role/Policies, and EC2 instance in a single step:
 
 ```bash
 cd terraform
 terraform init
-terraform plan
 terraform apply
 ```
+
+*(Note: `./scripts/ssm-put-parameters.sh` is also available if you prefer uploading parameters via the AWS CLI outside of Terraform).*
 
 ### 5. Replace the instance
 

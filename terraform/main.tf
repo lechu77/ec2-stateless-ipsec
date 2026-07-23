@@ -13,18 +13,6 @@ provider "aws" {
   region = var.region
 }
 
-# ---------------------------------------------------------------------------
-# Data sources — reference existing resources, not managed by this module
-# ---------------------------------------------------------------------------
-
-data "aws_ssm_parameter" "bootstrap_config" {
-  name = "/vpn-gateway/bootstrap/config"
-}
-
-# ---------------------------------------------------------------------------
-# EC2 Instance
-# ---------------------------------------------------------------------------
-
 resource "aws_instance" "vpn" {
   ami                    = var.ami_id
   instance_type          = var.instance_type
@@ -32,6 +20,12 @@ resource "aws_instance" "vpn" {
   vpc_security_group_ids = [var.security_group_id]
   key_name               = var.key_name
   iam_instance_profile   = var.iam_instance_profile
+
+  depends_on = [
+    aws_ssm_parameter.bootstrap_helpers,
+    aws_ssm_parameter.bootstrap_vars,
+    aws_ssm_parameter.bootstrap_config,
+  ]
 
   # user-data is uploaded as a file to avoid the 16 KB console paste limit.
   # Always use: terraform apply (destroy + create) to replace the instance.
