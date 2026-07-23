@@ -27,34 +27,42 @@ AWS SSM Parameter Store at boot.
 ## Architecture
 
 ```
-                               ┌───────────────────────────────────┐
-                               │     Network Load Balancer (NLB)   │
-                               │           Port 80 / TCP           │
-                               └─────────────────┬─────────────────┘
-                                                 │
-                               ┌─────────────────▼─────────────────┐
-                               │    Auto Scaling Group (ASG)       │
-                               │       (Desired Capacity: 1)       │
-                               └─────────────────┬─────────────────┘
-                                                 │
-                        ┌────────────────────────▼────────┐
-                        │      Launch Template Instance    │
-                        │  t4g.micro / Amazon Linux 2023  │
-                        │                                  │
-Internet ───────────────│  EIP 203.0.113.10  (primary)     │
-                        │  EIP 198.51.100.20 (enc-domain)  │
-                        │                                  │
-Remote IPsec peers ─────│  Libreswan (IKEv2/PSK)          │
-192.0.2.0/24            │  src: 198.51.100.20              │
-                        │                                  │
-Target Group ───────────│  Apache + PHP-FPM               │
-/healthCheck.php        │  CodeCommit repos cloned at boot │
-                        └─────────────────────────────────┘
-                                      │
-                               SSM Parameter Store
-                               /vpn-gateway/bootstrap/*
-                               /vpn-gateway/ipsec/*
-                               /vpn-gateway/httpd/*
+                       ┌─────────────────────────────────────────┐
+                       │       Network Load Balancer (NLB)       │
+                       │              Port 80 / TCP              │
+                       └────────────────────┬────────────────────┘
+                                            │
+                                            ▼
+                       ┌─────────────────────────────────────────┐
+                       │        Auto Scaling Group (ASG)         │
+                       │               Capacity: 1               │
+                       └────────────────────┬────────────────────┘
+                                            │
+                                            ▼
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                              EC2 Instance (Launch Template)                            │
+│                              t4g.micro | Amazon Linux 2023                             │
+│                                                                                        │
+│   ┌───────────────────────────┐   ┌───────────────────────────┐   ┌────────────────┐   │
+│   │     Primary Elastic IP    │   │   Encryption Domain EIP   │   │ Apache Backend │   │
+│   │        203.0.113.10       │   │       198.51.100.20       │   │  + PHP-FPM     │   │
+│   └─────────────┬─────────────┘   └─────────────┬─────────────┘   └───────▲────────┘   │
+│                 │                               │                         │            │
+└─────────────────┼───────────────────────────────┼─────────────────────────┼────────────┘
+                  │                               │                         │
+                  ▼                               ▼                         │
+          ┌───────────────┐             ┌──────────────────┐        ┌───────┴────────┐
+          │  SSH / Admin  │             │   Remote IPsec   │        │  Target Group  │
+          │    Access     │             │  192.0.2.0/24    │        │  Health Check  │
+          └───────────────┘             └──────────────────┘        └────────────────┘
+                                                  ▲
+                                                  │
+                               ┌──────────────────┴──────────────┐
+                               │       SSM Parameter Store       │
+                               │    /vpn-gateway/bootstrap/*     │
+                               │    /vpn-gateway/ipsec/*         │
+                               │    /vpn-gateway/httpd/*         │
+                               └─────────────────────────────────┘
 ```
 
 ### High Availability & Auto-Healing
