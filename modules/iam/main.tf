@@ -1,7 +1,3 @@
-# ---------------------------------------------------------------------------
-# IAM Role and Instance Profile for EC2 Stateless IPsec & Web Service
-# ---------------------------------------------------------------------------
-
 resource "aws_iam_role" "ec2_vpn_role" {
   name = var.iam_instance_profile
 

@@ -79,6 +79,12 @@ AWS SSM Parameter Store at boot.
 ```
 ec2-stateless-ipsec/
 ├── user-data.sh                      # EC2 user-data bootstrap script
+├── modules/                          # Decoupled reusable Terraform modules
+│   ├── iam/                          # IAM Role, Policy, and Instance Profile
+│   ├── ssm/                          # SSM Parameter Store resources
+│   ├── lb/                           # Network Load Balancer (NLB), Target Group & Listener
+│   ├── launch_template/              # Launch Template resource
+│   └── asg/                          # Auto Scaling Group resource
 ├── ssm/
 │   ├── bootstrap-helpers.sh          # Shell functions → /vpn-gateway/bootstrap/helpers
 │   ├── bootstrap-vars.sh             # Variable extraction → /vpn-gateway/bootstrap/vars
@@ -89,15 +95,12 @@ ec2-stateless-ipsec/
 │   ├── remote-hosts.example          # Template remote peer host IPs
 │   └── vhost.conf.example            # Template Apache VirtualHost
 ├── scripts/
-│   ├── setup.sh                      # Copies .example templates to gitignored config files
+│   ├── setup.sh                      # Interactive wizard: generates ssm/* and terraform.tfvars
 │   └── ssm-put-parameters.sh         # Helper to upload ssm/* files via AWS CLI
 ├── terraform/
-│   ├── main.tf                       # Launch Template & Auto Scaling Group
-│   ├── lb.tf                         # Network Load Balancer, Target Group & Listener
-│   ├── ssm.tf                        # SSM Parameter Store resources
-│   ├── iam.tf                        # IAM Role, Policy, and Instance Profile
-│   ├── variables.tf                  # Input variables (VPC, subnets, ASG, ELB options)
-│   ├── outputs.tf                    # Infrastructure outputs (NLB DNS, ASG ID, etc.)
+│   ├── main.tf                       # Root module composing all modules
+│   ├── variables.tf                  # Root input variables
+│   ├── outputs.tf                    # Infrastructure outputs
 │   └── terraform.tfvars.example      # Sample Terraform variables
 └── README.md
 ```
@@ -110,7 +113,7 @@ All parameters are stored as **SecureString** (KMS-encrypted).
 The bootstrap script reads them at launch — nothing sensitive is baked
 into the AMI or the user-data.
 
-### Parameters managed in Terraform (`terraform/ssm.tf`)
+### Parameters managed in Terraform (`modules/ssm`)
 
 | Parameter | Source file | Description |
 |-----------|-------------|-------------|
@@ -135,9 +138,9 @@ into the AMI or the user-data.
 
 ## Deployment
 
-### 1. Initialize local configuration files
+### 1. Interactive Setup Wizard
 
-Run the setup script to generate local configuration files from anonymized `.example` templates:
+Run the interactive setup wizard script. It prompts for your environment details, validates input, auto-generates a secure PSK if needed, and writes all required configuration files to `ssm/` and `terraform/terraform.tfvars`:
 
 ```bash
 ./scripts/setup.sh
